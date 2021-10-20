@@ -35,7 +35,7 @@ from .utils cimport python_summarize
 from .utils import check_random_state
 from .utils import _check_nan
 
-from .io import BaseGenerator
+from .io import BaseGenerator, DataGenerator
 from .io import SequenceGenerator
 
 from libc.stdlib cimport calloc
@@ -597,7 +597,7 @@ cdef class HiddenMarkovModel(GraphModel):
         self.add_transition(self.end, other.start, 1.00)
         self.end = other.end
 
-    def plot(self, precision=4, **kwargs):
+    def plot(self, precision=4, file=None, crop_zero=False, **kwargs):
         """Draw this model's graph using NetworkX and matplotlib.
 
         Note that this relies on networkx's built-in graphing capabilities (and
@@ -645,11 +645,19 @@ cdef class HiddenMarkovModel(GraphModel):
                     li = self.out_transitions[l]
                     p = cexp(self.out_transition_log_probabilities[l])
                     p = round(p, precision)
-                    G.add_edge(state.name, self.states[li].name, label=p)
-
-            with tempfile.NamedTemporaryFile() as tf:
-                G.draw(tf.name, format='png', prog='dot')
-                img = matplotlib.image.imread(tf.name)
+                    if p == 0 and crop_zero:
+                        pass
+                    else:
+                        G.add_edge(state.name, self.states[li].name, label=p)
+            if file is None:
+                with tempfile.NamedTemporaryFile() as tf:
+                    G.draw(tf.name, format='png', prog='dot')
+                    img = matplotlib.image.imread(tf.name)
+                    plt.imshow(img)
+                    plt.axis('off')
+            else:
+                G.draw(file.name, format='png', prog='dot')
+                img = matplotlib.image.imread(file.name)
                 plt.imshow(img)
                 plt.axis('off')
         else:
@@ -2625,6 +2633,14 @@ cdef class HiddenMarkovModel(GraphModel):
 
                     total_improvement += improvement
 
+                    #if this is minibatch training -- track batches seen and reset generator
+                    if isinstance(data_generator, DataGenerator):
+                        if data_generator.finished:
+                            data_generator.reset()
+                            n_seen_batches = 0
+                        n_seen_batches += data_generator.batches_per_epoch
+
+
                     logs = {'learning_rate': step_size,
                             'n_seen_batches' : n_seen_batches,
                             'epoch' : iteration,
@@ -3630,7 +3646,7 @@ cdef class HiddenMarkovModel(GraphModel):
 
             distributions = []
             for i in range(n_components):
-                weights = random_state.uniform(0, 1, size=len(X_concat))
+                weights = random_state.uniform(0, 1, size=len(keys))
                 weights /= weights.sum()
 
                 if X_concat.ndim == 1:
@@ -3679,8 +3695,12 @@ cdef class HiddenMarkovModel(GraphModel):
             end_probabilities = numpy.ones(k) / k
 
         model = cls.from_matrix(transition_matrix, distributions, 
-            start_probabilities, state_names=state_names, name=name, 
+            start_probabilities, state_names=state_names, name=name,
             ends=end_probabilities)
+
+        #initialization finished we want to reset our generator to the starting point
+        if not isinstance(data_generator, DataGenerator):
+            data_generator.reset()
 
         _, history = model.fit(data_generator, weights=weights, labels=labels, 
             stop_threshold=stop_threshold, min_iterations=min_iterations, 

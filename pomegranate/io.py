@@ -65,6 +65,8 @@ class DataGenerator(BaseGenerator):
 		self.X = numpy.array(X)
 		self.y = y
 		self.idx = 0
+		self.epoch = 0
+		self.finished = False
 
 		if y is not None and len(y) != len(X):
 			raise ValueError("Size of label vector y does not match size of data.")
@@ -82,10 +84,14 @@ class DataGenerator(BaseGenerator):
 		else:
 			self.batch_size = int(batch_size)
 
+		batches_count = int(numpy.ceil(len(self) / self.batch_size))
+
 		if batches_per_epoch is None:
-			self.batches_per_epoch = float("inf")
+			self.batches_per_epoch = batches_count
+			self.max_epoch = 0
 		else:
 			self.batches_per_epoch = batches_per_epoch
+			self.max_epoch = int(numpy.ceil(batches_count / self.batches_per_epoch) - 1)
 
 	def __len__(self):
 		return len(self.X)
@@ -106,27 +112,26 @@ class DataGenerator(BaseGenerator):
 		return self.X.ndim
 
 	def batches(self):
-		if self.batch_size == len(self):
-			while True:
-				if self.y is not None:
-					yield self.X, self.y, self.weights
-				else:
-					yield self.X, self.weights			
-				break
-		else:
-			start, end = 0, self.batch_size
-			iteration = 0
+		epoch_start = self.epoch * self.batches_per_epoch * self.batch_size
+		start, end = epoch_start, epoch_start + self.batch_size
+		iteration = 0
+		self.epoch += 1
+		while start < len(self) and iteration < self.batches_per_epoch:
+			if self.y is not None:
+				yield (self.X[start:end], self.y[start:end],
+					self.weights[start:end])
+			else:
+				yield self.X[start:end], self.weights[start:end]
 
-			while start < len(self) and iteration < self.batches_per_epoch:
-				if self.y is not None:
-					yield (self.X[start:end], self.y[start:end], 
-						self.weights[start:end])
-				else:
-					yield self.X[start:end], self.weights[start:end]
+			start += self.batch_size
+			end += self.batch_size
+			iteration += 1
+		if self.epoch > self.max_epoch:
+			self.finished = True
 
-				start += self.batch_size
-				end += self.batch_size
-				iteration += 1
+	def reset(self):
+		self.finished = False
+		self.epoch = 0
 
 	def labeled_batches(self):
 		X = self.X[self.y != -1]
