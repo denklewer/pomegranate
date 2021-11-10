@@ -35,7 +35,7 @@ from .utils cimport python_summarize
 from .utils import check_random_state
 from .utils import _check_nan
 
-from .io import BaseGenerator, DataGenerator
+from .io import BaseGenerator, DataGenerator, BatchedDataGenerator
 from .io import SequenceGenerator
 
 from libc.stdlib cimport calloc
@@ -657,9 +657,6 @@ cdef class HiddenMarkovModel(GraphModel):
                     plt.axis('off')
             else:
                 G.draw(file.name, format='png', prog='dot')
-                img = matplotlib.image.imread(file.name)
-                plt.imshow(img)
-                plt.axis('off')
         else:
             warnings.warn("Install pygraphviz for nicer visualizations")
             networkx.draw(self.graph, **kwargs)
@@ -2572,6 +2569,8 @@ cdef class HiddenMarkovModel(GraphModel):
 
                 data_generator = SequenceGenerator(checked_sequences, checked_weights,
                     checked_labels)
+        if isinstance(data_generator, BatchedDataGenerator):
+            whole_data_generator = SequenceGenerator(data_generator.X.copy(), weights, labels)
 
         n = data_generator.shape[0]
 
@@ -2634,7 +2633,7 @@ cdef class HiddenMarkovModel(GraphModel):
                     total_improvement += improvement
 
                     #if this is minibatch training -- track batches seen and reset generator
-                    if isinstance(data_generator, DataGenerator):
+                    if isinstance(data_generator, BatchedDataGenerator):
                         if data_generator.finished:
                             data_generator.reset()
                             n_seen_batches = 0
@@ -3699,7 +3698,7 @@ cdef class HiddenMarkovModel(GraphModel):
             ends=end_probabilities)
 
         #initialization finished we want to reset our generator to the starting point
-        if not isinstance(data_generator, DataGenerator):
+        if isinstance(data_generator, BatchedDataGenerator):
             data_generator.reset()
 
         _, history = model.fit(data_generator, weights=weights, labels=labels, 
