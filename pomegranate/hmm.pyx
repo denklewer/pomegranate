@@ -2375,7 +2375,8 @@ cdef class HiddenMarkovModel(GraphModel):
 
         return log_probability_sum, path
 
-    def fit(self, sequences, weights=None, labels=None, stop_threshold=1E-9,
+    def fit(self, sequences, weights=None, labels=None, sequences_test=None,
+        stop_threshold=1E-9,
         min_iterations=0, max_iterations=1e8, algorithm='baum-welch',
         pseudocount=None, transition_pseudocount=0, emission_pseudocount=0.0,
         use_pseudocount=False, inertia=None, edge_inertia=0.0,
@@ -2571,6 +2572,8 @@ cdef class HiddenMarkovModel(GraphModel):
                     checked_labels)
         if isinstance(data_generator, BatchedDataGenerator):
             whole_data_generator = SequenceGenerator(data_generator.X.copy(), weights, labels)
+        if sequences_test is not None:
+            data_generator_test = sequences_test
 
         n = data_generator.shape[0]
 
@@ -2618,6 +2621,9 @@ cdef class HiddenMarkovModel(GraphModel):
                 else:
                     log_probability_sum = sum(parallel(f(*batch, algorithm=algorithm,
                         check_input=multiple_check_input) for batch in data_generator.batches()))
+                test_log_probability_sum = 0
+                if sequences_test is not None:
+                    test_log_probability_sum = sum([(self.log_probability(*batch[0]) * batch[1][0]) for batch in data_generator_test.batches()])
 
                 if iteration == 0:
                     initial_log_probability_sum = log_probability_sum
@@ -2650,7 +2656,8 @@ cdef class HiddenMarkovModel(GraphModel):
                             'initial_log_probability' : initial_log_probability_sum,
                             'epoch_start_time' : epoch_start_time,
                             'epoch_end_time' : epoch_end_time,
-                            'duration' : time_spent }
+                            'duration' : time_spent,
+                            'test_log_probability':test_log_probability_sum}
 
                     for callback in callbacks:
                         callback.on_epoch_end(logs)
@@ -3392,10 +3399,10 @@ cdef class HiddenMarkovModel(GraphModel):
         return model
 
     @classmethod
-    def from_samples(cls, distribution, n_components, X, weights=None,
-        labels=None, algorithm='baum-welch', inertia=None, edge_inertia=0.0,
-        distribution_inertia=0.0, pseudocount=None,
-        transition_pseudocount=0, emission_pseudocount=0.0,
+    def from_samples(cls, distribution, n_components, X, weights=None, labels=None,
+        X_test=None, weights_test=None, labels_test=None,
+        algorithm='baum-welch', inertia=None, edge_inertia=0.0,distribution_inertia=0.0,
+        pseudocount=None, transition_pseudocount=0, emission_pseudocount=0.0,
         use_pseudocount=False, stop_threshold=1e-9, min_iterations=0,
         max_iterations=1e8, n_init=1, init='kmeans++', max_kmeans_iterations=1,
         initialization_batch_size=None, batches_per_epoch=None, lr_decay=0.0, 
@@ -3586,7 +3593,7 @@ cdef class HiddenMarkovModel(GraphModel):
         """
 
         random_state = check_random_state(random_state)
-
+        #train data
         if not isinstance(X, BaseGenerator):
             data_generator = SequenceGenerator(X, weights, labels)
         else:
@@ -3603,6 +3610,12 @@ cdef class HiddenMarkovModel(GraphModel):
             X_.extend(batch[0])
             if labels is not None:
                 labels_.extend(batch[2])
+
+        #test data
+        if X_test is not None and not isinstance(X_test, BaseGenerator):
+            data_generator_test = SequenceGenerator(X_test, weights_test, labels_test)
+        else:
+            data_generator_test = X_test
 
         if labels is not None:
             X_concat = [x for x, label in zip(X_, labels_) if label is not None]
@@ -3701,7 +3714,7 @@ cdef class HiddenMarkovModel(GraphModel):
         if isinstance(data_generator, BatchedDataGenerator):
             data_generator.reset()
 
-        _, history = model.fit(data_generator, weights=weights, labels=labels, 
+        _, history = model.fit(data_generator, weights=weights, labels=labels, sequences_test=data_generator_test,
             stop_threshold=stop_threshold, min_iterations=min_iterations, 
             max_iterations=max_iterations, algorithm=algorithm, 
             verbose=verbose, pseudocount=pseudocount,
