@@ -2687,6 +2687,15 @@ cdef class HiddenMarkovModel(GraphModel):
             return self, history
         return self
 
+    def update_transitions(self):
+        for k in range(self.n_states):
+            for l in range(self.out_edge_count[k], self.out_edge_count[k+1]):
+                li = self.out_transitions[l]
+                prob = self.out_transition_log_probabilities[l]
+                self.graph[self.states[k]][self.states[li]]['probability'] = prob
+
+
+
     def summarize(self, sequences, weights=None, labels=None, algorithm='baum-welch',
         check_input=True):
         """Summarize data into stored sufficient statistics for out-of-core

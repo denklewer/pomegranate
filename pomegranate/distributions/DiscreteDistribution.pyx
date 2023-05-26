@@ -24,6 +24,13 @@ DEF NEGINF = float("-inf")
 DEF INF = float("inf")
 eps = numpy.finfo(numpy.float64).eps
 
+cdef convert_to_python(double *ptr_counts, original_dict):
+	cdef int i
+	d = {}
+	for i, key in enumerate(original_dict.keys()):
+		d[key] = ptr_counts[i]
+	return d
+
 cdef class DiscreteDistribution(Distribution):
 	"""
 	A discrete distribution, made up of characters and their probabilities,
@@ -287,6 +294,9 @@ cdef class DiscreteDistribution(Distribution):
 			for i in range(self.n):
 				self.encoded_counts[i] += encoded_counts[i]
 				self.summaries[1] += encoded_counts[i]
+				#self.summaries[0] =  convert_to_python(self.encoded_counts, original_dict=self.summaries[0])
+				# print("summary")
+				# print(convert_to_python(self.summaries[1], 20))
 
 		free(encoded_counts)
 
