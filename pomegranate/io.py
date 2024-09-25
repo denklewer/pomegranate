@@ -183,10 +183,11 @@ class BatchedDataGenerator(BaseGenerator):
 	
 	def __init__(self, X, weights=None, y=None, batch_size=None,
 			batches_per_epoch=None):
-		self.X = numpy.array(X)
+		self.rng = numpy.random.default_rng()
+		self.X = X
 		self.y = y
 		self.idx = 0
-		self.epoch = 0
+		self.current_batch = 0
 		self.finished = False
 
 		if y is not None and len(y) != len(X):
@@ -209,17 +210,24 @@ class BatchedDataGenerator(BaseGenerator):
 
 		if batches_per_epoch is None:
 			self.batches_per_epoch = batches_count
-			self.max_epoch = 0
+			self.max_batches = 0
 		else:
 			self.batches_per_epoch = batches_per_epoch
-			self.max_epoch = int(numpy.ceil(batches_count / self.batches_per_epoch) - 1)
+			self.max_batches = int(numpy.ceil(batches_count / self.batches_per_epoch) - 1)
 
 	def __len__(self):
 		return len(self.X)
 
 	@property
 	def shape(self):
-		return self.X.shape
+		x_ = numpy.asarray(self.X[0])
+
+		if x_.ndim == 1:
+			return len(self.X), 1
+		elif x_.ndim == 2:
+			return len(self.X), x_.shape[1]
+		else:
+			raise ValueError("Data must be passed in as a list of numpy arrays.")
 
 	@property
 	def classes(self):
@@ -230,13 +238,13 @@ class BatchedDataGenerator(BaseGenerator):
 
 	@property
 	def ndim(self):
-		return self.X.ndim
+		return len(self.X[0])
 
 	def batches(self):
-		epoch_start = self.epoch * self.batches_per_epoch * self.batch_size
+		epoch_start = self.current_batch * self.batches_per_epoch * self.batch_size
 		start, end = epoch_start, epoch_start + self.batch_size
 		iteration = 0
-		self.epoch += 1
+		self.current_batch += 1
 		while start < len(self) and iteration < self.batches_per_epoch:
 			if self.y is not None:
 				yield (self.X[start:end], self.y[start:end],
@@ -247,12 +255,20 @@ class BatchedDataGenerator(BaseGenerator):
 			start += self.batch_size
 			end += self.batch_size
 			iteration += 1
-		if self.epoch > self.max_epoch:
+		if self.current_batch > self.max_batches:
 			self.finished = True
 
 	def reset(self):
 		self.finished = False
-		self.epoch = 0
+		self.current_batch = 0
+		c = list(zip(self.X, self.weights))
+		self.rng.shuffle(c)
+		tuple_x, tuple_weights = zip(*c)
+		self.X, self.weights = list(tuple_x), list(tuple_weights)
+		#new_indexes = self.rng.permutation(self.X.shape[0])
+		# self.X = self.X[new_indexes]
+		# self.weights = self.weights[new_indexes]
+
 
 	def labeled_batches(self):
 		X = self.X[self.y != -1]

@@ -82,6 +82,7 @@ class History(Callback):
 		self.n_seen_batches = []
 		self.initial_log_probablity = None
 		self.test_log_probability = []
+		self.batch_log_probability = []
 
 	def on_epoch_end(self, logs):
 		"""Save the files to the appropriate lists."""
@@ -97,6 +98,8 @@ class History(Callback):
 		self.n_seen_batches.append(logs['n_seen_batches'])
 		self.initial_log_probability = logs['initial_log_probability']
 		self.test_log_probability.append(logs['test_log_probability'])
+		self.batch_log_probability.append(logs['batch_log_probability'])
+
 
 
 class CSVLogger(Callback):
@@ -108,7 +111,7 @@ class CSVLogger(Callback):
 		self.append = append
 		self.file = None
 		self.columns = ['epoch', 'duration', 'total_improvement', 'improvement',
-			'log_probability', 'last_log_probability', 'test_log_probability', 'epoch_start_time',
+			'log_probability', 'last_log_probability', 'test_log_probability', 'batch_log_probability', 'epoch_start_time',
 			'epoch_end_time', 'n_seen_batches', 'learning_rate']
 
 	def on_training_begin(self):

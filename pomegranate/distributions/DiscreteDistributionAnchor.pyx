@@ -1,7 +1,7 @@
 #!python
 #cython: boundscheck=False
 #cython: cdivision=True
-# DiscreteDistribution.pyx
+# DiscreteDistributionAnchor.pyx
 # Contact: Jacob Schreiber <jmschreiber91@gmail.com>
 
 import itertools as it
@@ -31,7 +31,7 @@ cdef convert_to_python(double *ptr_counts, original_dict):
 		d[key] = ptr_counts[i]
 	return d
 
-cdef class DiscreteDistribution(Distribution):
+cdef class DiscreteDistributionAnchor(DiscreteDistribution):
 	"""
 	A discrete distribution, made up of characters and their probabilities,
 	assuming that these probabilities will sum to 1.0.
@@ -45,7 +45,20 @@ cdef class DiscreteDistribution(Distribution):
 			self.dist = d
 			self.log_dist = {key: _log(value) for key, value in d.items()}
 
-	def __cinit__(self, dict characters = {}, bint frozen=False):
+	property max_components:
+		def __get__(self):
+			return self.max_components
+		def __set__(self, max_components):
+			self.max_components = max_components
+
+	property default_pseudocount:
+		def __get__(self):
+			return self.default_pseudocount
+		def __set__(self, default_pseudocount):
+			self.default_pseudocount = default_pseudocount
+
+
+	def __cinit__(self, dict characters = {},bint frozen=False):
 		"""
 		Make a new discrete distribution with a dictionary of discrete
 		characters and their probabilities, checking to see that these
@@ -53,8 +66,10 @@ cdef class DiscreteDistribution(Distribution):
 		Bernoulli distribution.
 		"""
 
-		self.name = "DiscreteDistribution"
+		self.name = "DiscreteDistributionAnchor"
 		self.frozen = frozen
+		self.max_components = 3 # default value since we can not pass to constructor (cinit)
+		self.default_pseudocount = 50 # default value since we can not pass to constructor (cinit)
 
 		self.is_blank_= True
 		self.dtype = None
@@ -72,11 +87,6 @@ cdef class DiscreteDistribution(Distribution):
 		"""
 		return str(type(list(characters.keys())[0])).split()[-1].strip('>').strip("'")
 
-	def __dealloc__(self):
-		if self.encoded_keys is not None:
-			free(self.encoded_counts)
-			free(self.encoded_log_probability)
-
 	def __reduce__(self):
 		"""Serialize the distribution for pickle."""
 		return self.__class__, (self.dist, self.frozen)
@@ -91,9 +101,9 @@ cdef class DiscreteDistribution(Distribution):
 		other_keys = other.keys()
 		distribution, total = {}, 0.0
 
-		if isinstance(other, DiscreteDistribution) and self_keys == other_keys:
-			self_values = (<DiscreteDistribution>self).dist.values()
-			other_values = (<DiscreteDistribution>other).dist.values()
+		if isinstance(other, DiscreteDistributionAnchor) and self_keys == other_keys:
+			self_values = (<DiscreteDistributionAnchor>self).dist.values()
+			other_values = (<DiscreteDistributionAnchor>other).dist.values()
 			for key, x, y in zip(self_keys, self_values, other_values):
 				if _check_nan(key):
 					distribution[key] = (1 + eps) * (1 + eps)
@@ -102,7 +112,7 @@ cdef class DiscreteDistribution(Distribution):
 				total += distribution[key]
 		else:
 			assert set(self_keys) == set(other_keys)
-			self_items = (<DiscreteDistribution>self).dist.items()
+			self_items = (<DiscreteDistributionAnchor>self).dist.items()
 			for key, x in self_items:
 				if _check_nan(key):
 					x = 1.
@@ -118,21 +128,21 @@ cdef class DiscreteDistribution(Distribution):
 			elif distribution[key] >= 1 - eps / total:
 				distribution[key] = 1.0
 
-		return DiscreteDistribution(distribution)
+		return DiscreteDistributionAnchor(distribution)
 
 
 	def equals(self, other):
 		"""Return if the keys and values are equal"""
 
-		if not isinstance(other, DiscreteDistribution):
+		if not isinstance(other, DiscreteDistributionAnchor):
 			return False
 
 		self_keys = self.keys()
 		other_keys = other.keys()
 
 		if self_keys == other_keys:
-			self_values = (<DiscreteDistribution>self).log_dist.values()
-			other_values = (<DiscreteDistribution>other).log_dist.values()
+			self_values = (<DiscreteDistributionAnchor>self).log_dist.values()
+			other_values = (<DiscreteDistributionAnchor>other).log_dist.values()
 			for key, self_prob, other_prob in zip(self_keys, self_values, other_values):
 				if _check_nan(key):
 					continue
@@ -141,7 +151,7 @@ cdef class DiscreteDistribution(Distribution):
 				if self_prob != other_prob:
 					return False
 		elif set(self_keys) == set(other_keys):
-			self_items = (<DiscreteDistribution>self).log_dist.items()
+			self_items = (<DiscreteDistributionAnchor>self).log_dist.items()
 			for key, self_prob in self_items:
 				if _check_nan(key):
 					self_prob = 0.
@@ -157,7 +167,7 @@ cdef class DiscreteDistribution(Distribution):
 
 	def clamp(self, key):
 		"""Return a distribution clamped to a particular value."""
-		return DiscreteDistribution({ k : 0. if k != key else 1. for k in self.keys() })
+		return DiscreteDistributionAnchor({ k : 0. if k != key else 1. for k in self.keys() })
 
 	def keys(self):
 		"""Return the keys of the underlying dictionary."""
@@ -180,26 +190,6 @@ cdef class DiscreteDistribution(Distribution):
 				max_key, max_value = key, value
 
 		return max_key
-
-	def bake(self, keys):
-		"""Encoding the distribution into integers."""
-
-		if keys is None:
-			return
-
-		n = len(keys)
-		self.encoded_keys = keys
-
-		free(self.encoded_counts)
-		free(self.encoded_log_probability)
-
-		self.encoded_counts = <double*> calloc(n, sizeof(double))
-		self.encoded_log_probability = <double*> malloc(n * sizeof(double))
-		self.n = n
-
-		for i in range(n):
-			key = keys[i]
-			self.encoded_log_probability[i] = self.log_dist.get(key, NEGINF)
 
 	def probability(self, X):
 		"""Return the prob of the X under this distribution."""
@@ -300,17 +290,34 @@ cdef class DiscreteDistribution(Distribution):
 
 		free(encoded_counts)
 
+
+
+
 	def from_summaries(self, inertia=0.0, pseudocount=0.0):
 		"""Use the summaries in order to update the distribution."""
 
+		pseudocount = self.default_pseudocount
+
 		if self.summaries[1] == 0 or self.frozen == True:
-			#print("Usual State will not be updated")
+			#print("Anchor State will not be updated")
 			return
-		#print("Elements used for this usual state update ", self.summaries[1])
+		#print("Elements used for anchor state update ", self.summaries[1])
 
 		if self.encoded_summary == 0:
+			# print("summaries before ", self.summaries[0])
+			sorted_dictionary = dict(sorted(self.summaries[0].items(), key=lambda item: item[1]))
+			# print("summaries sorted ", sorted_dictionary)
+			total_elements = len(sorted_dictionary)
+			for key in list(sorted_dictionary.keys())[:-self.max_components]:
+				self.summaries[0][key] = 0
+
 			values = self.summaries[0].values()
+			# print("summaries filtered", self.summaries[0].values())
+
+
 			_sum = sum(values) + pseudocount * len(values)
+			if sum(values) < pseudocount * len(values):
+				print("Anchor State will not be updated actually, only forget")
 			for key, value in self.summaries[0].items():
 				value += pseudocount
 				try:
@@ -322,6 +329,19 @@ cdef class DiscreteDistribution(Distribution):
 			self.bake(self.encoded_keys)
 		else:
 			n = len(self.encoded_keys)
+			# print("Encoded keys before ", self.encoded_keys)
+			# print("and counts ", convert_to_python(self.encoded_counts, original_dict=self.summaries[0]))
+			sorted_keys = list(sorted(self.encoded_keys, key=lambda item: self.encoded_counts[self.encoded_keys.index(item)]))
+			# print("Sorted keys ", sorted_keys)
+
+			for i in range(0,n-self.max_components):
+				self.encoded_counts[self.encoded_keys.index(sorted_keys[i])] = 0
+
+			# print("Filtered counts ", convert_to_python(self.encoded_counts, original_dict=self.summaries[0]))
+			# now sum changed, need to adjust it
+			self.summaries[1] = 0
+			for i in range(n):
+				self.summaries[1] += self.encoded_counts[i]
 			for i in range(n):
 				_sum = self.summaries[1] + pseudocount * n
 				value = self.encoded_counts[i] + pseudocount
@@ -352,7 +372,9 @@ cdef class DiscreteDistribution(Distribution):
 			'dtype' : self.dtype,
 			'name'  : self.name,
 			'parameters' : [{str(key): value for key, value in self.dist.items()}],
-			'frozen' : self.frozen
+			'frozen' : self.frozen,
+			'max_components': self.max_components,
+			'default_pseudocount': self.default_pseudocount
 		}
 
 	@classmethod
