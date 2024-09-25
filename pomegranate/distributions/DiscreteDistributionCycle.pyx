@@ -24,12 +24,6 @@ DEF NEGINF = float("-inf")
 DEF INF = float("inf")
 eps = numpy.finfo(numpy.float64).eps
 
-cdef convert_to_python(double *ptr_counts, original_dict):
-	cdef int i
-	d = {}
-	for i, key in enumerate(original_dict.keys()):
-		d[key] = ptr_counts[i]
-	return d
 
 cdef class DiscreteDistributionCycle(DiscreteDistribution):
 	"""
@@ -196,32 +190,12 @@ cdef class DiscreteDistributionCycle(DiscreteDistribution):
 
 		return self.__probability(X)
 
-	cdef double __probability(self, X):
-		if _check_nan(X):
-			return 1.
-		else:
-			return self.dist.get(X, 0)
 
 	def log_probability(self, X):
 		"""Return the log prob of the X under this distribution."""
 
 		return self.__log_probability(X)
 
-	cdef double __log_probability(self, X):
-		if _check_nan(X):
-			return 0.
-		else:
-			return self.log_dist.get(X, NEGINF)
-
-	cdef void _log_probability(self, double* X, double* log_probability, int n) nogil:
-		cdef int i
-		for i in range(n):
-			if isnan(X[i]):
-				log_probability[i] = 0.
-			elif X[i] < 0 or X[i] > self.n:
-				log_probability[i] = NEGINF
-			else:
-				log_probability[i] = self.encoded_log_probability[<int> X[i]]
 
 	def sample(self, n=None, random_state=None):
 		random_state = check_random_state(random_state)
@@ -265,30 +239,6 @@ cdef class DiscreteDistributionCycle(DiscreteDistribution):
 					self.summaries[0][x] = weights[i]
 				self.summaries[1] += weights[i]
 
-	cdef double _summarize(self, double* items, double* weights, int n,
-		int column_idx, int d) nogil:
-		cdef int i
-		cdef double item
-		self.encoded_summary = 1
-
-		encoded_counts = <double*> calloc(self.n, sizeof(double))
-
-		for i in range(n):
-			item = items[i*d + column_idx]
-			if isnan(item):
-				continue
-
-			encoded_counts[<int> item] += weights[i]
-
-		with gil:
-			for i in range(self.n):
-				self.encoded_counts[i] += encoded_counts[i]
-				self.summaries[1] += encoded_counts[i]
-				#self.summaries[0] =  convert_to_python(self.encoded_counts, original_dict=self.summaries[0])
-				# print("summary")
-				# print(convert_to_python(self.summaries[1], 20))
-
-		free(encoded_counts)
 
 
 
